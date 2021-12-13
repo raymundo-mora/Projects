@@ -12,25 +12,34 @@ Modified 2021-22-19T03:06:51.337Z:
 ''' 
 
 import os
+from os.path import exists
+import warnings
+import re
+
 import pandas as pd
 import numpy as np
+
+from skimage import restoration
+
 from astropy.io import fits
 from astropy import wcs
 from astropy.wcs.utils import skycoord_to_pixel
 from astropy.coordinates import SkyCoord
-from skimage import restoration
-import warnings
-import re
-
 from astropy.coordinates import ICRS, Galactic, FK4, FK5
 from astropy.wcs import WCS
-
-import matplotlib.pyplot as plt
 from astropy.nddata import Cutout2D
-import matplotlib.backends.backend_pdf 
 from astropy.table import Table, vstack
 from astropy.wcs.utils import pixel_to_skycoord
+
+from photutils.isophote import Ellipse
+from photutils.isophote import EllipseGeometry
+
+
+import matplotlib.pyplot as plt
+import matplotlib.backends.backend_pdf 
 from matplotlib.colors import LogNorm
+
+from scipy.optimize import curve_fit
 #######################################################################################################
 #######################################################################################################
 #######################################################################################################
@@ -60,7 +69,6 @@ def ccd_dict(LBT_filter='r-SLOAN') -> dict:
     startpath = startpath+LBT_filter
     
     # Get the path to each file in the directory and add it to the 'ccd_dict'
-    # 
     for root, dirs, files in os.walk(startpath):
             for f in files:
                 if f.endswith('.fits')== False:
@@ -78,8 +86,7 @@ def ccd_dict(LBT_filter='r-SLOAN') -> dict:
     print("Dictionary created")
     print("Example Key:Value pair:")
     print('{',list(ccd_dict.keys())[0],':',ccd_dict[list(ccd_dict.keys())[0]],'}')
-    
-    
+
     # Sort the Keys in 'ccd_dict' by Field # and Chip # 
     ccd_dict = sorted(ccd_dict.items())
     ccd_dict = dict(ccd_dict)
@@ -213,28 +220,10 @@ def psf(r: list, *pars: np.array) -> np.array:
         A numpy.array of the PSF evaluated at all points given in r with the 
         parameters provided by *pars
     """
+    # Parameters describing the PSF 
     r0, alpha, beta, off = pars
     
-    return (1+ (r/r0)**(alpha))**(-beta/alpha)
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-def half_max_radius(pars: list):
-    r = [2]# bad initial guess! 
-    counter = 1
-    accuracy = 0.00005
-    while((abs(psf(r,*pars)- 0.5)) > accuracy): 
-        
-        if (psf(r,*pars)- 0.5) > 0:
-            r[0] = r[0]+r[0]/counter
-            counter += 1
-        elif (psf(r,*pars)- 0.5) < 0:
-            r[0] = r[0]-r[0]/counter
-            counter +=1
-        print(psf(r,*pars))
-    
-
-    return r[0]
+    return (1+ (r/r0)**(alpha))**(-beta/alpha) # PSF from Wang & Ma (2013)
 #######################################################################################################
 #######################################################################################################
 #######################################################################################################
@@ -279,6 +268,9 @@ def is_in_image(RA: list,DEC: list,ID: list ,fits_image: str) -> pd.DataFrame:
     Returns:
         pd.DataFrame: df with columns=('id','chip','ra','dec','x','y','file','tag')
     """
+    ID = pd.Series(ID)
+    RA = pd.Series(RA)
+    DEC = pd.Series(DEC)
     # We generally consider this bad practice, this is to avoid 
     # printing an excess amount of information about the opening of 
     # of our fits files that we do not care about.   
@@ -331,7 +323,7 @@ def is_in_filter(source_df,ra_label,dec_label,ID='Name',LBT_filter='r-SLOAN'):
     the specified filter. 
 
     Args:
-        source_df (pd.DataFrame): pd.DataF
+        source_df (pd.DataFrame): pd.DataFrame
         rame of your sources containing 
                                   ra & dec in degrees and an ID column.
         ra_label (str): Name of your RA column.
@@ -418,134 +410,10 @@ def is_in_filter(source_df,ra_label,dec_label,ID='Name',LBT_filter='r-SLOAN'):
                                         cutout.data)
                 count += 1
     return target_df
-###############################################################################
-###############################################################################
-###############################################################################
-def hwhm(pars: np.ndarray):
-    r = [2]# bad initial guess! 
-    counter = 1
-    accuracy = 0.00005
-    while((abs(psf(r,*pars)- 0.5)) > accuracy): 
-        
-        if (psf(r,*pars)- 0.5) > 0:
-            r[0] = r[0]+r[0]/counter
-            counter += 1
-        elif (psf(r,*pars)- 0.5) < 0:
-            r[0] = r[0]-r[0]/counter
-            counter +=1
-    return r[0]
-###############################################################################
-###############################################################################
-###############################################################################
-def bkg_subtraction(data,inspect=False):
-    """
-    Parameters
-    ----------
-    data : 2-dimensional numpy.ndarrray
-        DESCRIPTION.
-
-    Returns
-    -------
-    background_subtracted_data : np.ndarray
-        DESCRIPTION.
-        Returns a 2-dimensional array of the background subtracted data that 
-        was given as an argument. 
-
-    """
-    fig_list = []
-    import matplotlib.pyplot as plt
-    from photutils.background import Background2D
-
-    from matplotlib.backends.backend_pdf import PdfPages
-
-
-    ny, nx = data.shape
-    y, x = np.mgrid[:ny, :nx]
-
-
-    # bkg = Background2D(data, (50, 50),filter_size=(3,3),exclude_percentile=14)
-    bkg = Background2D(data, (25, 25),filter_size=(3,3),exclude_percentile=14)
-
-
-    background_subtracted_data = data - bkg.background
-
-
-
-    if inspect == True:
-        fig,ax = plt.subplots()
-
-        ax.set_title('Data')
-        im = ax.imshow(data, origin='lower')
-        fig.colorbar(im)
-        
-        fig_list.append(fig)
-        
-        fig,ax = plt.subplots()
-        ax.set_title('Background')
-        im = ax.imshow(bkg.background, origin='lower')
-        fig.colorbar(im)
-        
-        fig_list.append(fig)
-            
-        fig,ax = plt.subplots()
-        ax.set_title('Data - Background')
-        im = ax.imshow(background_subtracted_data, origin='lower')
-        fig.colorbar(im)
-        
-        fig_list.append(fig)
-        
-        fig,axes = plt.subplots(1,2)
-        axes[0].set_title('Background')
-        axes[0].imshow(bkg.background,vmin=0,vmax=6500,origin='lower')
-        
-        axes[1].set_title('Data - Background')
-        im = axes[1].imshow(background_subtracted_data,vmin=0,vmax=6500,origin='lower')
-        fig.colorbar(im,ax=axes.ravel().tolist(),shrink=0.7)
-        
-        fig_list.append(fig)
-        
-        fig,axes = plt.subplots(1,2)
-        axes[0].set_title('Background')
-        im = axes[0].imshow(bkg.background,origin='lower')
-        fig.colorbar(im)
-        
-        
-        axes[1].set_title('Data - Background')
-        im = axes[1].imshow(background_subtracted_data,origin='lower')
-        fig.colorbar(im,ax=axes.ravel().tolist(),shrink=0.7)
-        
-        fig_list.append(fig)
-        
-        fig,axes = plt.subplots(1,2)
-        axes[0].set_title('Data')
-        im = axes[0].imshow(data,origin='lower')
-        fig.colorbar(im,shrink=0.7)
-        
-        
-        axes[1].set_title('Data - Background')
-        im = axes[1].imshow(background_subtracted_data,origin='lower')
-        fig.colorbar(im,ax=axes.ravel().tolist(),shrink=0.7)
-        
-        fig_list.append(fig)
-        
-        fig,ax = plt.subplots()
-        ax.set_title('Background')
-        im = ax.imshow(bkg.background, origin='lower')
-        bkg.plot_meshes(outlines=True)
-        fig.colorbar(im)
-        
-        fig_list.append(fig)
-        
-        fig,ax = plt.subplots()
-        ax.set_title('Data')
-        im = ax.imshow(data, origin='lower')
-        bkg.plot_meshes(outlines=True)
-        fig.colorbar(im)
-    return background_subtracted_data, fig_list
 #######################################################################################################
 #######################################################################################################
 #######################################################################################################
-def display_target(ra: float,dec: float,name: str, inspect=False, pdf=False) -> None:
+def display_target(ra: float,dec: float,name: str, inspect=False) -> list:
     """Returns plots of the frame and a 100 by 100 cutout
     of where the target is found. 
 
@@ -553,7 +421,10 @@ def display_target(ra: float,dec: float,name: str, inspect=False, pdf=False) -> 
         ra (float): RA of the target in degrees
         dec (float): DEC of the target in degrees
         name (str): name or ID of the target
+    Returns: list: List of figures of where our target was found if inspect == True. If 
+             inspect == False returns empty list. 
     """
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
     plots = []
     # Load up the M33 images 
     images = ccd_dict()
@@ -570,194 +441,343 @@ def display_target(ra: float,dec: float,name: str, inspect=False, pdf=False) -> 
             
             if 'Bessel' in exposure:
                 field = exposure[41:47]
-                chip_num = exposure[48:53]       
+                chip_num = exposure[48:53]
+            
+            # Create a figure if we found our object in the current image we are looping 
+            # through.    
             for i in match_df.index:
                     # Load the FITS hdulist using astropy.io.fits
                     hdulist = fits.open(exposure, mode='readonly', ignore_missing_end=True)
+                    # Load Header
                     w = wcs.WCS(hdulist[0].header)
-                        
-                    fig = plt.figure()
+                     
+                    # Figure 1    
+                    fig, ax = plt.subplots(1,2)
+                    fig.suptitle(f"{name} \n {exposure}")  
                     image_data = fits.getdata(exposure)
-                
-                    fig.add_subplot(1,2,1)
-                    fig.suptitle = name
-                    
-                    coord = SkyCoord(ra=ra,dec=dec,unit='deg',frame=FK5)
-                        
+
+                    # Get 100X100 cutout of our image centered at our target
+                    coord = SkyCoord(ra=ra,dec=dec,unit='deg',frame=FK5)        
                     position = skycoord_to_pixel(coord, w)
-                        
-                    title = exposure[32:]
-                    plt.title(title,fontsize=7)
-                    
                     size= (100,100)
                     cutout = Cutout2D(image_data, position, size)
                     
-                    sigma = np.std(cutout.data)
-                    median = np.median(cutout.data)
+                    ## Figure 1 Axis 0   
                     
+                    # Add circle centered at our taget                                      
                     coord = cutout.to_cutout_position(position)
                     circle = plt.Circle(coord, 5,color ='red', fill=False)
-                    plt.gca().add_patch(circle)
-                    plt.imshow(cutout.data,vmin = median - 3*sigma, vmax = median+3*sigma, cmap='viridis',origin='lower')
+                    ax[0].add_patch(circle)
                     
+                    # Display our Data
+                    im1 = ax[0].imshow(cutout.data,origin='lower')
                     
-                    fig.add_subplot(1,2,2)
-                    fig.suptitle = name
+                    ### Figure 1 Axis 0 Colorbar
+                    divider = make_axes_locatable(ax[0])
+                    cax = divider.append_axes("bottom", size="5%", pad=0.1)
+                    fig.colorbar(im1, cax=cax,orientation='horizontal')     
                     
-                    image_data.shape
+                    ## Figure 1 Axis 1
+                    coord = SkyCoord(ra=ra,dec=dec,unit='deg',frame=FK5)  
+                    position = skycoord_to_pixel(coord, w)    
+                    size = (100,100)
                     
-                    title = 'r-SLOAN',i,exposure
-                    plt.title(name,fontsize=10)
-                
-                    coord = SkyCoord(ra=ra,dec=dec,unit='deg',frame=FK5)
-                        
-                    position = skycoord_to_pixel(coord, w)
-                        
-                    size= (100,100)
-                    
-                    
+                    # Add square centered at our target                  
                     rectangle = plt.Rectangle(position,color='red',height= 100,width= 100, fill=False)
-                    plt.gca().add_patch(rectangle)
-                    plt.imshow(image_data,vmin = 200, vmax = 2**16, cmap='viridis',origin='lower')
-                    if pdf ==True: 
-                        plots.append(plt)
-    if pdf == True:
-        return plots                  
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-def make_isophote(data,x0,y0,ID,filename='default_isophote_geometry.pkl',
-                  inspect = False, pdf=False):
-    
+                    ax[1].add_patch(rectangle)
+                    
+                    # Display image where our target was found
+                    im2 = ax[1].imshow(image_data,origin='lower')
+                    
+                    ### Figure 1 Axis 1 Colorbar
+                    divider = make_axes_locatable(ax[1])
+                    cax = divider.append_axes("right", size="5%", pad=0.1)
+                    fig.colorbar(im2, cax=cax) 
+                    
+                    #### Tidy Up
+                    fig.tight_layout()
+                    
+                    if inspect == True: 
+                        plots.append(fig)
+    return plots   
+###############################################################################
+###############################################################################
+###############################################################################
+def hwhm(pars: np.ndarray) -> float:
+    """Gets the HWWM of of the psf defined by 'pars' as described in psf() from the 
+    PSF function in Wang & Ma (2013). 
+
+    Args:
+        pars (np.ndarray): pars describing the PSF in psf()
+
+    Returns:
+        float: hwhm radius in pixels
+    """
+    r = [2]# bad initial guess! 
+    counter = 1 # Simple/non-sophisticated way to converge to the answer without
+                # oscilating around it indefinetely
+    accuracy = 0.00005 # tolerance in error between true value and 0.5
+    while((abs(psf(r,*pars)- 0.5)) > accuracy): 
+        if (psf(r,*pars)- 0.5) > 0:
+            r[0] = r[0]+r[0]/counter # if we underestimate r subtract r/counter
+            counter += 1
+        elif (psf(r,*pars)- 0.5) < 0:
+            r[0] = r[0]-r[0]/counter # if we overestimate r add r/counter
+            counter +=1
+    return r[0]        
+###############################################################################
+###############################################################################
+###############################################################################
+def bkg_subtraction(data: np.ndarray,inspect=False) -> (np.ndarray, list,float):
+    """Estimates the 2-Dimensional background of an image data provided and returns
+    the background subtracted data and a list of all the figures relevant to the subtraction. 
+
+    Args:
+        data (np.ndarray): Data pertaning to the image we will estimate and subtract the
+                           background from. 
+        inspect (bool): Whether or not to generate relevant plots and return them in a list. 
+    Returns:
+        np.ndarray: background subtracted data.
+        list: list of relevant plots if 'inspect' == True. 
+    """
     import matplotlib.pyplot as plt
-    from photutils.isophote import Ellipse
-    from photutils.isophote import EllipseGeometry
+    from photutils.background import Background2D
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    from matplotlib.backends.backend_pdf import PdfPages
     
-    save_path = '/home/ray/m33/analy_scripts/isophotes/'
-    new_geometry = pd.DataFrame(columns=('cutout data','x0','y0',
-                                         'sma','eps','pa','isolist'))
-    
-    
+    # initialize the figure list
     fig_list = []
-    new_geometry.index.Name = 'ID'
-    max_sma = 50
-    # initial parameters for EllipseGeometry
-    step = 1.5 #stepsize between isophote fittings, in pixels
-    sma = 2.5
-    eps = 0.1
-    pa = 0.1
+    
+    # bkg = Background2D(data, (20, 20),filter_size=(3,3),exclude_percentile=14)
+    bkg = Background2D(data, (25, 25),filter_size=(5,5),exclude_percentile=10)
+    background_subtracted_data = data - bkg.background
+    
+    bkg_range = np.max(bkg.background) - np.min(bkg.background)
+    # Create figures to visualize our background subtraction  
+    if inspect == True:
+        
+        # Figure 1
+        fig,ax = plt.subplots(1,2)
+
+        fig.suptitle(f"Background Range: {int(bkg_range)} counts\n Background Median: {int(np.median(bkg.background))}")
+        
+        ## Figure 1 Axis 0
+        ax[0].set_title('Data')
+        im1 = ax[0].imshow(data, origin='lower')
+        bkg.plot_meshes(axes=ax[0],outlines=True)
+              
+        #### Figure 1 Axis 0 Colorbar  
+        divider = make_axes_locatable(ax[0])
+        cax = divider.append_axes("right", size="5%", pad=0.1)
+        fig.colorbar(im1, cax=cax)        
+                
+        ## Figure 1 Axis 1
+        ax[1].set_title('Background')
+        im2 = ax[1].imshow(bkg.background, origin='lower')
+        bkg.plot_meshes(axes=ax[1],outlines=True)
+        
+        #### Figure 1 Axis 1 Colorbar
+        divider = make_axes_locatable(ax[1])
+        cax = divider.append_axes("right", size="5%", pad=0.1)
+        fig.colorbar(im2, cax=cax)      
+
+        #### Tidy Up
+        fig.tight_layout()
+        fig_list.append(fig)        
+                
+        # Figure 2
+        minmin = np.min((np.min(bkg.background),np.min(background_subtracted_data)))
+        maxmax = np.max((np.max(bkg.background),np.max(background_subtracted_data)))
+        
+        fig, ax = plt.subplots(1,2)
+
+        ## Figure 2 Axis 0
+        ax[0].set_title('Background')
+        im1 = ax[0].imshow(bkg.background,vmin=minmin,vmax=maxmax,origin='lower')
+        
+        ## Figure 2 Axis 1 
+        ax[1].set_title('Data - Background')
+        im2 = ax[1].imshow(background_subtracted_data,vmin=minmin,vmax=maxmax,origin='lower')
+
+        ### Figure 2 Colorbar
+        p0 = ax[0].get_position().get_points().flatten()
+        p1 = ax[1].get_position().get_points().flatten()
+        cax = fig.add_axes([p0[0], 0.15, p1[2]-p0[0], 0.02])
+        plt.colorbar(im2, cax=cax, orientation='horizontal')
+        
+        #### Tidy Up
+        fig_list.append(fig)
+ 
+        # Figure 3
+        minmin = np.min((np.min(data),np.min(background_subtracted_data)))
+        maxmax = np.max((np.max(data),np.max(background_subtracted_data)))
+        
+        fig,ax = plt.subplots(1,2)
+        
+        ## Figure 3 Axis 0 
+        ax[0].set_title('Data')
+        im1 = ax[0].imshow(data,vmin=minmin,vmax=maxmax,origin='lower')
+        
+        ## Figure 3 Axis 1
+        ax[1].set_title('Data - Background')
+        im2 = ax[1].imshow(background_subtracted_data,vmin=minmin,vmax=maxmax,origin='lower')
+
+        ### Figure 3 Colorbar
+        p0 = ax[0].get_position().get_points().flatten()
+        p1 = ax[1].get_position().get_points().flatten()
+        cax = fig.add_axes([p0[0], 0.15, p1[2]-p0[0], 0.02])
+        plt.colorbar(im2, cax=cax, orientation='horizontal')
+        
+        #### Tidy Up
+        fig_list.append(fig)
+        
+    return background_subtracted_data, fig_list
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+def make_isophote(data: float,x0: float,y0: float,ID,inspect = False):
+    """Generates an 'Isophotelist' instance from 
+    photutils.isophote.Ellipse.fit_image() for the data provided
+    for an object centered at x0, y0. 
+
+    Args:
+        data (np.ndarray): 2D np.ndarray, your image data.
+        x0 (float): x coordiante of your object in 'data'.
+        y0 (float): y coordinate of your object in 'data'.
+        ID (str/float): Object ID. 
+        inspect (bool, optional): If True, generates plots describing the
+        Isophotelist instance. Defaults to False.
+
+    Returns:
+        instance: photutils.isophote.Ellipse.fit_image() 
+    """
+
+    
+    fig_list = [] # Initiate figure list. 
+    max_sma = 50 # sma size at which to stop trying to make a fit 
+    # initial parameters for EllipseGeometry.
+    step = 1.5 #stepsize between isophote fittings, in pixels.
+    sma = 2.5 # Initial sma to try 'ellipse.fit_image'.
+    eps = 0.1 # Initial eps to try 'ellipse.fit_image'.
+    pa = 0.1 # Initial pa to try 'ellipse.fit_image'.
 
     geometry = EllipseGeometry(x0=x0, y0=y0,sma=sma, eps=eps,
-                                pa=pa)
-    ellipse = Ellipse(data,geometry)
-    isolist = []
-    try:
-        isolist = ellipse.fit_image(linear=True,step=step,maxgerr=4,fix_center=True)
+                                pa=pa) # Initialize 'geometry' for 'ellipse'.
+    ellipse = Ellipse(data,geometry) 
+    isolist = [] # Create an enpty object for isolist so we have something to check
+                 # for length if 'ellipse.fit_image' does not work. 
 
-    except:
-
-        pass
-    if len(isolist) != 0 :
-        new_geometry.loc[ID]= (data,x0,y0,sma,eps,pa,isolist)
-
-
-    maxgerr = 5
-    while(len(isolist)==0):     
+    # Attempt to fit an isophote to our data, if it fails attempt again with a larger
+    # sma. Stop when sma > max_ma or sucessful fit. 
+    while(len(isolist)==0) and sma < max_sma:     
             geometry = EllipseGeometry(x0=x0, y0=y0,sma=sma, eps=eps,
                                 pa=pa)
             ellipse = Ellipse(data,geometry)        
-            isolist = ellipse.fit_image(linear=True,step=step,maxgerr=maxgerr)
+            isolist = ellipse.fit_image(linear=True,step=step,maxgerr=4)
+            
             sma+= 1
-            
+            # If we have a sucessfull fit and inspect == True then
+        # Generate Figures        
 
-    if len(isolist) != 0 :
-        new_geometry.loc[ID]= (data,x0,y0,sma,eps,pa,isolist)
-        if inspect == True:
-            x = new_geometry['isolist'][ID].sma
-            y = new_geometry['isolist'][ID].intens
-            
+    if len(isolist) != 0 and inspect == True:
+
+            # Figure 1 
+            # counts v sma
             fig = plt.figure()
             plt.title(str(ID)+' isophotes')
             plt.xlabel('sma (pixels)')
             plt.ylabel('intensity (counts')
+            
+            x = isolist.sma
+            y = isolist.intens
             plt.scatter(x, y)
             
-            
+            #### Tidy Up
+            plt.tight_layout()
             fig_list.append(fig)
             
+            
+            # Figure 2 
             fig, ax = plt.subplots(1,2)
             fig.suptitle(str(ID)+' isophotes')
+            
+            ## Figure 2 Axis 0 
             ax[0].imshow(data,origin='lower')
             
+            # Generate cirlces that show the isophotes
             smas = np.linspace(1.5, 25.5, 8)
             for sma in smas:
-                iso = new_geometry['isolist'][ID].get_closest(sma)
+                iso = isolist.get_closest(sma)
                 x,y = iso.sampled_coordinates()
                 ax[0].plot(x,y, color='white')
                 
-        
+            ## Figure 2 Axis 1 
             ax[1].imshow(data,origin='lower')
             
+            # Generate circles that show the isophotes 
             smas = np.linspace(1.5, 25.5, 4)
             for sma in smas:
-                iso = new_geometry['isolist'][ID].get_closest(sma)
+                iso = isolist.get_closest(sma)
                 x,y = iso.sampled_coordinates()
                 ax[1].plot(x,y, color='white')
             
+            #### Tidy Up 
+            plt.tight_layout()
             fig_list.append(fig)
+        
+        
+            # Figure 3 
+            fig, ax = plt.subplots(2,2) 
+
+            ## Figure 3 Axis 0
+            # eps v sma
+            ax[0,0].errorbar(isolist.sma, isolist.eps, yerr=isolist.ellip_err,fmt='o')
+            ax[0,0].set_xlabel('Semimajor Axis Length (pix)')
+            ax[0,0].set_ylabel('Ellipticity')
+
+            ## Figure 3 Axis 1
+            # pa v sma
+            ax[0,1].errorbar(isolist.sma, isolist.pa / np.pi * 180.,
+                         yerr=isolist.pa_err / np.pi * 80., fmt='o', markersize=4)
+            ax[0,1].set_xlabel('Semimajor Axis Length (pix)')
+            ax[0,1].set_ylabel('PA (deg)')
+
+            ## Figure 3 Axis 2 
+            # x0 v sma
+            ax[1,0].errorbar(isolist.sma, isolist.x0, yerr=isolist.x0_err, fmt='o',
+                        markersize=4)
+            ax[1,0].set_xlabel('Semimajor Axis Length (pix)')
+            ax[1,0].set_ylabel('x0')
+
+            ## Figure 3 Axis 3
+            # y0 v sma
+            ax[1,1].errorbar(isolist.sma, isolist.y0, yerr=isolist.y0_err, fmt='o',
+                            markersize=4)
+            ax[1,1].set_xlabel('Semimajor Axis Length (pix)')
+            ax[1,1].set_ylabel('y0')
             
-            fig = plt.figure(figsize=(8, 8))
-            plt.subplots_adjust(hspace=0.35, wspace=0.35)
-
-            plt.subplot(2, 2, 1)
-            plt.errorbar(isolist.sma, isolist.eps, yerr=isolist.ellip_err,fmt='o')
-            plt.xlabel('Semimajor Axis Length (pix)')
-            plt.ylabel('Ellipticity')
-
-            plt.subplot(2, 2, 2)
-            plt.errorbar(isolist.sma, isolist.pa / np.pi * 180.,
-                        yerr=isolist.pa_err / np.pi * 80., fmt='o', markersize=4)
-            plt.xlabel('Semimajor Axis Length (pix)')
-            plt.ylabel('PA (deg)')
-
-            plt.subplot(2, 2, 3)
-            plt.errorbar(isolist.sma, isolist.x0, yerr=isolist.x0_err, fmt='o',
-                        markersize=4)
-            plt.xlabel('Semimajor Axis Length (pix)')
-            plt.ylabel('x0')
-
-            plt.subplot(2, 2, 4)
-            plt.errorbar(isolist.sma, isolist.y0, yerr=isolist.y0_err, fmt='o',
-                        markersize=4)
-            plt.xlabel('Semimajor Axis Length (pix)')
-            plt.ylabel('y0')
-                    
+            #### Tidy Up
+            plt.tight_layout()
             fig_list.append(fig)            
                     
-                    
-         
-    return new_geometry, fig_list
+    return isolist, fig_list   
 #######################################################################################################
 #######################################################################################################
 #######################################################################################################
-def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
+def make_psf(starlist,RA_label,DEC_label,ID,chip,inspect=False):
 
-    import matplotlib.pyplot as plt
-    from m33 import psf
-    from m33_dictionary import bkg_subtraction
-    from m33 import is_in_filter
-    from m33 import hwhm
-    from scipy.optimize import curve_fit
-    from matplotlib.backends.backend_pdf import PdfPages
+
+
+
+
 
     ra_col = starlist[RA_label]
     dec_col = starlist[DEC_label]
     id_col = starlist[ID]
-    
-    
+        
     # Makes sure the RA and DEC of the stars given are 
     in_filter = is_in_filter(starlist, RA_label, DEC_label,ID)
-    stars = in_filter[in_filter['chip'] == ccd]
+    stars = in_filter[in_filter['tag'] == chip]
     # Initialize a DF for the isophotes of each star. 
     isophotes = pd.DataFrame(columns=('ccd','cutout data','ra','dec','isolist'))
 
@@ -777,17 +797,16 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
         ra = stars['ra'][i]
         dec = stars['dec'][i]
 
-        ########ADDED THIS##################
         data = bkg_subtraction(data)
         
-        iso = make_isophote(data,x0,y0,ID)    
+        iso = make_isophote(data,x0,y0,ID)[0] 
         
         if len(iso) != 0:
             isophotes.loc[ID] = (ccd,
                                  data,
                                  ra,
                                  dec,
-                                 iso['isolist'][ID]
+                                 iso
                                  )
     npsf = len(isophotes)
     min_list = 500
@@ -812,11 +831,17 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
     
     fig_list = []
 
+    fwhm_pix = hwhm(pars)*2
+    fwhm_arc = hwhm(pars)*2*0.2255
+
+    # Generate plots if inspect == True
     if inspect == True:
             
         psf_count = 0
         for i in isophotes.index:
             if (psf_count % 4) == 0:
+                
+                # Figure 1 
                 fig, ax = plt.subplots(2,2)
                 fig.suptitle(f"Surface Brightness Profiles of {isophotes['ccd'].unique()[0]} PSF stars")
                 
@@ -830,6 +855,8 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
 
                 psf_sma.append(sma)
                 psf_intens.append(intens)
+                
+                ## Figure 1 Axis 0 
                 ax[0,0].plot(sma,intens) 
                 ax[0,0].set_title(f"{isophotes['ra'][i]} {isophotes['dec'][i]}")
 
@@ -837,6 +864,8 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
                 
                 fig_list.append(fig)
                 
+                
+            ## Figure 1 Axis 1 
             if (psf_count % 4) == 1:
 
                 sma = isophotes['isolist'][i].sma
@@ -847,7 +876,7 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
                 ax[0,1].plot(sma,intens) 
                 ax[0,1].set_title(f"{isophotes['ra'][i]} {isophotes['dec'][i]}")
 
-
+            ## Figure 1 Axis 2 
             if (psf_count % 4) == 2:
 
                 sma = isophotes['isolist'][i].sma
@@ -858,6 +887,9 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
                 ax[1,0].plot(sma,intens) 
                 ax[1,0].set_title(f"{isophotes['ra'][i]} {isophotes['dec'][i]}")
     
+            #### Tidy Up
+            plt.tight_layout()
+            ## Figure 1 Axis 3 
             if (psf_count % 4) == 3:
 
                 sma = isophotes['isolist'][i].sma
@@ -870,7 +902,7 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
 
             psf_count += 1             
                 
-        
+        # Figure 2 
         fig = plt.figure()
         plt.title('Averaged Intenities')
         plt.plot(x,np.full(len(x),0))
@@ -880,8 +912,11 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
         xfitrange = np.linspace(min(x),max(x),1000)
         yfit = psf(xfitrange, *pars)
         
+        #### Tidy Up
+        plt.tight_layout()
         fig_list.append(fig)
         
+        # Figure 3 
         fig = plt.figure()
         plt.title('PSF')
         plt.plot(x,np.full(len(x),0))
@@ -889,9 +924,11 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
         
         plt.plot(xfitrange,yfit)
         
+        #### Tidy Up
+        plt.tight_layout()
         fig_list.append(fig)
         
-        
+        # Figure 4 
         fig = plt.figure()
         plt.title('PSF Overlay')
         plt.xlabel('Radius (pixels)')
@@ -899,11 +936,11 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
         for i, star in enumerate(psf_sma):
             plt.plot(psf_sma[i],psf_intens[i])
         
+        #### Tidy Up
+        plt.tight_layout()
         fig_list.append(fig)
         
-        
-        
-        
+        # Figure 5 
         fig = plt.figure()
         plt.title('PSF Overlay')
         plt.xlabel('Radius (pixels)')
@@ -925,9 +962,14 @@ def make_psf(starlist,RA_label,DEC_label,ID,ccd,inspect=False, pdf=False):
         plt.plot(np.full(2,half_r),[0.25,0.75],c='g')# vertical
         plt.xlim(0,13)
         
-        fig_list.append(fig)            
-
-    return pars, fig_list
+        #### Tidy Up
+        plt.tight_layout()
+        fig_list.append(fig)
+    
+    seeing = [fwhm_pix,fwhm_arc]
+                    
+    
+    return pars, fig_list, seeing
 #######################################################################################################
 #######################################################################################################
 #######################################################################################################
@@ -967,9 +1009,6 @@ def deconvolve_PSF(data, r0, alpha, beta, Niterations=10, inspect=False):
         original data deconvolved with its PSF. 
 
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from skimage import restoration
     # helper functions
     def PSF2D(xy, *pars):
         I0, r0, a, b = pars
