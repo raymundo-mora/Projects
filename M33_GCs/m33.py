@@ -450,7 +450,7 @@ def display_target(ra: float,dec: float,name: str, inspect=False) -> list:
                     hdulist = fits.open(exposure, mode='readonly', ignore_missing_end=True)
                     # Load Header
                     w = wcs.WCS(hdulist[0].header)
-                     
+                    cmap = 'gnuplot2'
                     # Figure 1    
                     fig, ax = plt.subplots(1,2)
                     fig.suptitle(f"{name} \n {exposure}")  
@@ -470,7 +470,7 @@ def display_target(ra: float,dec: float,name: str, inspect=False) -> list:
                     ax[0].add_patch(circle)
                     
                     # Display our Data
-                    im1 = ax[0].imshow(cutout.data,origin='lower')
+                    im1 = ax[0].imshow(cutout.data,origin='lower',vmin=0,vmax=10000,cmap=cmap)
                     
                     ### Figure 1 Axis 0 Colorbar
                     divider = make_axes_locatable(ax[0])
@@ -487,7 +487,9 @@ def display_target(ra: float,dec: float,name: str, inspect=False) -> list:
                     ax[1].add_patch(rectangle)
                     
                     # Display image where our target was found
-                    im2 = ax[1].imshow(image_data,origin='lower')
+                    sigma_clip = 1*np.std(image_data)
+                    mdd = np.mean(image_data)
+                    im2 = ax[1].imshow(image_data,origin='lower',vmin=0,vmax=10000,cmap=cmap)
                     
                     ### Figure 1 Axis 1 Colorbar
                     divider = make_axes_locatable(ax[1])
@@ -635,7 +637,7 @@ def bkg_subtraction(data: np.ndarray,inspect=False) -> (np.ndarray, list,float):
 #######################################################################################################
 #######################################################################################################
 #######################################################################################################
-def make_isophote(data: float,x0: float,y0: float,ID,inspect = False):
+def make_isophote(data: float,x0: float,y0: float,ID,inspect = False) -> tuple:
     """Generates an 'Isophotelist' instance from 
     photutils.isophote.Ellipse.fit_image() for the data provided
     for an object centered at x0, y0. 
@@ -649,15 +651,16 @@ def make_isophote(data: float,x0: float,y0: float,ID,inspect = False):
         Isophotelist instance. Defaults to False.
 
     Returns:
-        instance: photutils.isophote.Ellipse.fit_image() 
+        tuple: instance, photutils.isophote.Ellipse.fit_image().
+               list,  
     """
 
     
     fig_list = [] # Initiate figure list. 
     max_sma = 50 # sma size at which to stop trying to make a fit 
     # initial parameters for EllipseGeometry.
-    step = 1.5 #stepsize between isophote fittings, in pixels.
-    sma = 2.5 # Initial sma to try 'ellipse.fit_image'.
+    step = 1.0 #stepsize between isophote fittings, in pixels.
+    sma = 1.5 # Initial sma to try 'ellipse.fit_image'.
     eps = 0.1 # Initial eps to try 'ellipse.fit_image'.
     pa = 0.1 # Initial pa to try 'ellipse.fit_image'.
 
@@ -764,30 +767,49 @@ def make_isophote(data: float,x0: float,y0: float,ID,inspect = False):
 #######################################################################################################
 #######################################################################################################
 #######################################################################################################
-def make_psf(starlist,RA_label,DEC_label,ID,chip,inspect=False):
+def make_psf(starlist: pd.DataFrame,RA_label: str,DEC_label: str,id_label: str,
+             chip: str,inspect=False) -> tuple:
+    """Takes a pd.DataFrame containing the location of reference stars used to 
+    construct the PSF of an image. The psf is constructed by obtaining isophote 
+    information from each star using photutils. Since the isophote information 
+    is obtained using consistent sma intervals we get the average intensity at 
+    each sma and then normalize it to construct our psf. 
 
+    Args:
+        starlist (pd.DataFrame): Contains the location for each reference star used
+        to construct our PSF. 
+        RA_label (str): Name of the RA column in 'starlist'.
+        DEC_label (str): Name of the DEC column in 'starlist'.
+        ID (str): Name of the column used to identify each object in 'starlist'. 
+        chip (str): Tag of the field+chip of interest (e.g. f1c1). 
+        inspect (bool, optional): If True creates and returns list of figures 
+        that describe the psf construction. Defaults to False.
 
-
-
-
+    Returns:
+        tuple: pars, contains a list of parameters that describe the psf. 
+               fig_list, contains a list of figures. Empty if inspect== False.
+               seeing, a list of the psf FWHM in pixels and arcseconds. 
+    """
+    from m33 import psf
 
     ra_col = starlist[RA_label]
     dec_col = starlist[DEC_label]
-    id_col = starlist[ID]
+    id_col = starlist[id_label]
         
-    # Makes sure the RA and DEC of the stars given are 
-    in_filter = is_in_filter(starlist, RA_label, DEC_label,ID)
+    # If a reference star is in multiple exposures get only the exposure of 
+    # interest. 
+    in_filter = is_in_filter(starlist, RA_label, DEC_label,id_label)
     stars = in_filter[in_filter['tag'] == chip]
     # Initialize a DF for the isophotes of each star. 
-    isophotes = pd.DataFrame(columns=('ccd','cutout data','ra','dec','isolist'))
+    isophotes = pd.DataFrame(columns=('ccd','ra','dec','isolist'))
 
     # The index for each star will be its ID.
     isophotes.index.name = 'ID'
 
+    # Initilize the lists to contain the sma and intensities of our reference stars.
     psf_sma = []
     psf_intens = []
 
-    stars_counter = 1
     for i in stars.index:
         data = stars['cutout_data'][i]
         x0 = stars['x_coord'][i]
@@ -797,17 +819,20 @@ def make_psf(starlist,RA_label,DEC_label,ID,chip,inspect=False):
         ra = stars['ra'][i]
         dec = stars['dec'][i]
 
-        data = bkg_subtraction(data)
+        # Preprocess our reference stars by performing a background subtraction.
+        data = bkg_subtraction(data)[0]
         
+        # Generate an isolist for our reference stars. 
         iso = make_isophote(data,x0,y0,ID)[0] 
         
+        # If isolist generation was successful add it
         if len(iso) != 0:
             isophotes.loc[ID] = (ccd,
-                                 data,
                                  ra,
                                  dec,
                                  iso
                                  )
+    
     npsf = len(isophotes)
     min_list = 500
     for i in isophotes.index:
@@ -958,10 +983,10 @@ def make_psf(starlist,RA_label,DEC_label,ID,chip,inspect=False):
         #add HWHM 
         half_r = hwhm(pars)
         half_max = psf(half_r,*pars)
-        plt.plot([-5,half_r],np.full(2,psf([half_r],*pars)),c='g')# horizontal
+        plt.plot([-5,half_r],np.full(2,psf([half_r],*pars)),c='g',label='HWHM')# horizontal
         plt.plot(np.full(2,half_r),[0.25,0.75],c='g')# vertical
         plt.xlim(0,13)
-        
+        plt.legend()
         #### Tidy Up
         plt.tight_layout()
         fig_list.append(fig)
@@ -970,6 +995,58 @@ def make_psf(starlist,RA_label,DEC_label,ID,chip,inspect=False):
                     
     
     return pars, fig_list, seeing
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
+def generate_psf(lbt_filter:str, ccd: str) -> pd.DataFrame:
+    """Utiizes 'make_psf' to streamline the process for making a PSF 
+    for each chip and saves relevant data in a csv file under
+    'datasets/psf_params.csv'. 
+    REQUIRES: That the psf to be created has a list of reference stars
+    for the chip under 'datasets/M33_psf_starlist.csv'. 
+    
+
+    Args:
+        lbt_filter (str): name of the filter of the image we want to
+        make a psf for.
+        ccd (str): 
+
+    Returns:
+        pd.DataFrame: The df that was saved as 'psf_params.csv' 
+    """
+    dir_exists = exists('datasets/')
+    if dir_exists == False:
+        os.mkdir('datasets/')
+    file_exists = exists('datasets/psf_params.csv')
+    if file_exists == False:
+        df = pd.DataFrame(columns=('filter','ccd','r0','alpha',
+                                   'beta','off','fwhm','seeing'))
+        df.to_csv('datasets/psf_params.csv',index_label='chip')
+        
+    psf_stars = pd.read_csv('datasets/M33_psf_starlist.csv')
+    psf_stars = psf_stars[psf_stars['Filter'] == lbt_filter]
+    psf_stars = psf_stars[psf_stars['FIELD+CHIP'] == ccd]
+    
+    psf = make_psf(psf_stars, 'RA', 'DEC', 'ID', ccd)
+    
+    pars = psf[0]
+    figs = psf[1]
+    seeing = psf[2]
+    
+    ID = lbt_filter[0]+ccd
+  
+    r0 = pars[0]
+    alpha = pars[1]
+    beta = pars[2]
+    off = pars[3]
+    
+    
+    psf_params = pd.read_csv('datasets/psf_params.csv', index_col='chip')
+    psf_params.loc[ID] = (lbt_filter,ccd,r0,alpha,beta,off,seeing[0],seeing[1])
+      
+    psf_params.to_csv('datasets/psf_params.csv',index_label='chip')
+    
+    return psf_params
 #######################################################################################################
 #######################################################################################################
 #######################################################################################################
