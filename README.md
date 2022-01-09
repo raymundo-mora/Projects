@@ -7,7 +7,7 @@ This repo contains a mixture of personal, academic and professional projects tha
 
 
 <details >
-<summary>details</summary>
+<summary>Details</summary>
 
 <details>
 <summary>Topics</summary>
@@ -45,15 +45,11 @@ This repo contains a mixture of personal, academic and professional projects tha
   
 </details>
 
-
-## In Progress
-
-
 ## [Flu Shot Learning: Predict H1N1 and Seasonal Flu Vaccines](https://github.com/raymundo-mora/Projects/tree/main/Flu%20Shot%20Learning:%20Predict%20H1N1%20and%20Seasonal%20Flu%20Vaccines)
 
 
 <details >
-<summary>details</summary>
+<summary>Details</summary>
 
 <details>
 <summary>Topics</summary>
@@ -77,3 +73,9 @@ This repo contains a mixture of personal, academic and professional projects tha
   
   
 </details>
+
+
+## In Progress
+
+
+
