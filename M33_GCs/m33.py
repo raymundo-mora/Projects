@@ -30,6 +30,7 @@ from astropy.wcs import WCS
 from astropy.nddata import Cutout2D
 from astropy.table import Table, vstack
 from astropy.wcs.utils import pixel_to_skycoord
+from astropy.stats import sigma_clipped_stats
 
 from photutils.isophote import Ellipse
 from photutils.isophote import EllipseGeometry
@@ -466,7 +467,7 @@ def display_target(ra: float,dec: float,name: str, inspect=False) -> list:
                     
                     # Add circle centered at our taget                                      
                     coord = cutout.to_cutout_position(position)
-                    circle = plt.Circle(coord, 5,color ='red', fill=False)
+                    circle = plt.Circle(coord, 5,color ='green', ec='green',fill=False)
                     ax[0].add_patch(circle)
                     
                     # Display our Data
@@ -483,13 +484,13 @@ def display_target(ra: float,dec: float,name: str, inspect=False) -> list:
                     size = (100,100)
                     
                     # Add square centered at our target                  
-                    rectangle = plt.Rectangle(position,color='red',height= 100,width= 100, fill=False)
+                    rectangle = plt.Rectangle(position,color='green',height= 100,width= 100, fill=False)
                     ax[1].add_patch(rectangle)
                     
                     # Display image where our target was found
                     sigma_clip = 1*np.std(image_data)
                     mdd = np.mean(image_data)
-                    im2 = ax[1].imshow(image_data,origin='lower',vmin=0,vmax=10000,cmap=cmap)
+                    im2 = ax[1].imshow(image_data,origin='lower',vmin=0,vmax=12000,cmap=cmap)
                     
                     ### Figure 1 Axis 1 Colorbar
                     divider = make_axes_locatable(ax[1])
@@ -1201,6 +1202,9 @@ def get_parameters(rc,rt,log=False):
     rt = px2distance(rt)
     
     if log==True:
-        rc = np.log10(rc)
-        rt = np.log10(rt)
+        rc = np.log(rc)
+        rt = np.log(rt)
     return rc,rt
+#######################################################################################################
+#######################################################################################################
+#######################################################################################################
