@@ -80,6 +80,7 @@ This repo contains a mixture of personal, academic and professional projects tha
 
 
 ## In Progress
+ ##  [Analyzing Saved Track Lyrics: Spotify Users](https://github.com/raymundo-mora/Projects/tree/main/Spotify%20Topic%20Models)
 
 ## [M33 Globular Clusters](https://github.com/raymundo-mora/Projects/tree/main/M33_GCs)
 
