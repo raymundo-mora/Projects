@@ -80,6 +80,46 @@ This repo contains a mixture of personal, academic and professional projects tha
 
 
 ## In Progress
+ ##  [Analyzing Saved Track Lyrics: Spotify Users](https://github.com/raymundo-mora/Projects/tree/main/Spotify%20Topic%20Models)
+ <details >
+<summary>Details</summary>
+
+<details>
+<summary>Topics</summary>
+
+  `NLP` `Natural Language Understanding` `Sentiment Analysis` `Topic Modeling` `LDA` 
+  
+
+</details>
+  
+<details>  
+<summary>Stack</summary> 
+
+
+![Pandas](https://img.shields.io/badge/Pandas-2C2D72?style=for-the-badge&logo=pandas&logoColor=white)
+![NumPy](https://img.shields.io/badge/numpy-%23013243.svg?style=for-the-badge&logo=numpy&logoColor=white)
+![matplotlib](https://img.shields.io/badge/matplotlib-2F6D92?style=for-the-badge&lColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=PyTorch&logoColor=white)
+![Scikit-learn](https://img.shields.io/badge/scikit_learn-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=blue)
+![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)
+![Git](https://img.shields.io/badge/git-%23F05033.svg?style=for-the-badge&logo=git&logoColor=white)
+  
+  
+
+</details>
+
+<details>  
+<summary>Literature</summary> 
+  
+
+
+</details>
+  
+  
+</details>
+
+
+
 
 ## [M33 Globular Clusters](https://github.com/raymundo-mora/Projects/tree/main/M33_GCs)
 
